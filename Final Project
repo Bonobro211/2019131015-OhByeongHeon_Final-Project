@@ -1,0 +1,121 @@
+import random, urllib.request, ipywidgets as w
+from IPython.display import display
+
+# ── 이미지 URL ───────────────────────────
+URLS = {
+    '가위': 'https://github.com/Bonobro211/Rock-Scissors-Paper/blob/main/%EA%B0%80%EC%9C%84.png?raw=true',
+    '바위': 'https://github.com/Bonobro211/Rock-Scissors-Paper/blob/main/%EB%B0%94%EC%9C%84.png?raw=true',
+    '보'  : 'https://github.com/Bonobro211/Rock-Scissors-Paper/blob/main/%EB%B3%B4.png?raw=true'
+}
+
+# ── URL → 바이트 로딩 ───────────────────────
+IMG_BYTES = {k: urllib.request.urlopen(u).read() for k, u in URLS.items()}
+
+# ── AI 테이블 (어려움) ───────────────────────
+C1 = ('가위', '바위'); C2 = ('가위', '보'); C3 = ('바위', '보')
+AI_TABLE = {
+    (C1, C1): {'바위': 1.0},
+    (C2, C2): {'가위': 1.0},
+    (C3, C3): {'보':   1.0},
+    (C3, C1): {'바위': 0.7, '보': 0.3},
+    (C2, C1): {'보':   0.7, '가위': 0.3},
+    (C1, C3): {'가위': 0.7, '바위': 0.3},
+    (C2, C3): {'보':   0.7, '가위': 0.3},
+    (C1, C2): {'가위': 0.7, '바위': 0.3},
+    (C3, C2): {'바위': 0.7, '보': 0.3},
+}
+def choose_hard(comp_two, player_two):
+    key = (tuple(sorted(comp_two)), tuple(sorted(player_two)))
+    probs = AI_TABLE[key]
+    hands, weights = zip(*probs.items())
+    return random.choices(hands, weights)[0]
+
+# ── 위젯 유틸 ───────────────────────────
+def img_button(hand, cb, sz=120):
+    img = w.Image(value=IMG_BYTES[hand], format='png', width=sz, height=sz)
+    btn = w.Button(description=hand, layout=w.Layout(width=f'{sz}px'))
+    btn.on_click(lambda _, h=hand: cb(h))
+    return w.VBox([img, btn])
+
+def img_row(title, hands, sz=100):
+    return w.VBox([w.Label(title),
+                   w.HBox([w.Image(value=IMG_BYTES[h], format='png',
+                                   width=sz, height=sz) for h in hands])])
+
+# ── 게임 로직 ───────────────────────────
+class RPSGame:
+    def __init__(self, diff, host, back_to_menu):
+        self.diff, self.host, self.back = diff, host, back_to_menu
+        self.start_round()
+
+    def start_round(self, *_):
+        self.player_two, self.comp_two = [], []
+        self.host.children = [w.VBox([
+            w.Label(f'난이도: {self.diff}  |  1단계: 두 장을 고르세요'),
+            w.HBox([img_button(h, self.pick_two) for h in IMG_BYTES],
+                   layout=w.Layout(justify_content='center'))
+        ])]
+
+    def pick_two(self, h):
+        if h in self.player_two or len(self.player_two) == 2: return
+        self.player_two.append(h)
+        if len(self.player_two) == 2:
+            self.comp_two = random.choice([C1, C2, C3])
+            self.show_second()
+
+    def show_second(self):
+        self.host.children = [w.VBox([
+            w.Label('컴퓨터가 고른 두 장입니다. 한 장만 남기세요.'),
+            img_row('컴퓨터의 패', self.comp_two),
+            w.HBox([img_button(h, self.pick_final) for h in self.player_two],
+                   layout=w.Layout(justify_content='center'))
+        ])]
+
+    def pick_final(self, h):
+        self.player_final = h
+        self.comp_final = (random.choice(self.comp_two) if self.diff == '보통'
+                           else choose_hard(self.comp_two, self.player_two))
+        self.show_result()
+
+    def show_result(self):
+        outcome = self.judge(self.player_final, self.comp_final)
+        txt = {'win':'승리 🎉','lose':'패배 😢','draw':'무승부 🤝'}[outcome]
+
+        again = w.Button(description='다시 시작하기 🔄')
+        again.on_click(self.start_round)      # ← 여기서 콜백 등록
+
+        diff  = w.Button(description='난이도 변경')
+        diff.on_click(lambda _ : self.back()) # ← 여기서 콜백 등록
+
+        self.host.children = [w.VBox([
+            img_row('컴퓨터의 패', [self.comp_final]),
+            img_row('당신의 패',   [self.player_final]),
+            w.Label(f'결과: {txt}'),
+            w.HBox([again, diff])
+        ])]
+
+
+    @staticmethod
+    def judge(p, c):
+        if p == c: return 'draw'
+        beats = {'가위':'보','바위':'가위','보':'바위'}
+        return 'win' if beats[p] == c else 'lose'
+
+# ── 앱 매니저 ─────────────────────────
+class RPSApp:
+    def __init__(self):
+        self.root = w.VBox()
+        display(self.root)
+        self.menu()
+
+    def menu(self):
+        diff_dd  = w.Dropdown(options=['보통','어려움'], value='보통', description='난이도:')
+        start_btn= w.Button(description='게임 시작 ▶')
+        self.root.children = [w.VBox([diff_dd, start_btn])]
+        def start(_):
+            self.root.children = []
+            RPSGame(diff_dd.value, self.root, self.menu)
+        start_btn.on_click(start)
+
+# ── 실행 ────────────────────────────
+game = RPSApp()
